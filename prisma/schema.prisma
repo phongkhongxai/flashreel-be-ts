@@ -1,0 +1,160 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountStatus {
+  ACTIVE
+  CANCELLED
+}
+
+enum VideoStatus {
+  APPROVED
+  REJECTED
+  REVIEWING
+  TAKEN_DOWN
+}
+
+enum CommentStatus {
+  DELETED
+  VISIBLE
+}
+
+model User {
+  id             String        @id @default(uuid()) @db.VarChar(36)
+  username       String        @unique(map: "uk_users_username") @db.VarChar(50)
+  email          String        @unique(map: "uk_users_email") @db.VarChar(100)
+  password       String        @db.VarChar(255)
+  firstName      String?       @map("first_name") @db.VarChar(50)
+  lastName       String?       @map("last_name") @db.VarChar(50)
+  displayName    String?       @map("display_name") @db.VarChar(100)
+  nickname       String        @db.VarChar(100)
+  dob            DateTime?     @db.Date
+  bio            String?       @db.VarChar(500)
+  avatarUrl      String?       @map("avatar_url") @db.VarChar(255)
+  emailVerified  Boolean       @map("email_verified")
+  enabled        Boolean
+  locked         Boolean
+  accountStatus  AccountStatus @map("account_status")
+  followerCount  BigInt        @map("follower_count")
+  followingCount BigInt        @map("following_count")
+  videoCount     BigInt        @map("video_count")
+  createdAt      DateTime      @map("created_at") @db.DateTime(6)
+  updatedAt      DateTime      @map("updated_at") @db.DateTime(6)
+
+  videos    Video[]
+  likes     VideoLike[]
+  comments  VideoComment[]
+  following UserFollow[]   @relation("FollowFollower")
+  followers UserFollow[]   @relation("FollowAuthor")
+  roles     UserRole[]
+
+  @@index([username], map: "idx_users_username")
+  @@index([email], map: "idx_users_email")
+  @@map("users")
+}
+
+model Role {
+  name        String     @id @db.VarChar(255)
+  description String?    @db.VarChar(255)
+  users       UserRole[]
+
+  @@map("role")
+}
+
+model UserRole {
+  userId String @map("user_id") @db.VarChar(36)
+  roleId String @map("role_id") @db.VarChar(255)
+  user   User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  role   Role   @relation(fields: [roleId], references: [name], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([userId, roleId])
+  @@index([userId], map: "idx_user_roles_user_id")
+  @@index([roleId], map: "idx_user_roles_role_id")
+  @@map("user_roles")
+}
+
+model InvalidatedToken {
+  id         String    @id @db.VarChar(255)
+  expiryTime DateTime? @map("expiry_time") @db.DateTime(6)
+
+  @@map("invalidated_token")
+}
+
+model Video {
+  id           String         @id @default(uuid()) @db.VarChar(36)
+  title        String         @db.VarChar(60)
+  videoUrl     String         @map("video_url") @db.VarChar(1000)
+  coverUrl     String?        @map("cover_url") @db.VarChar(1000)
+  authorId     String         @map("author_id") @db.VarChar(36)
+  status       VideoStatus
+  rejectReason String?        @map("reject_reason") @db.VarChar(500)
+  likeCount    BigInt         @map("like_count")
+  viewCount    BigInt         @map("view_count")
+  commentCount BigInt         @default(0) @map("comment_count")
+  publishedAt  DateTime?      @map("published_at") @db.DateTime(6)
+  approvedAt   DateTime?      @map("approved_at") @db.DateTime(6)
+  createdAt    DateTime       @map("created_at") @db.DateTime(6)
+  updatedAt    DateTime       @map("updated_at") @db.DateTime(6)
+  author       User           @relation(fields: [authorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  likes        VideoLike[]
+  comments     VideoComment[]
+
+  @@index([status], map: "idx_videos_status")
+  @@index([authorId], map: "idx_videos_author_id")
+  @@index([approvedAt], map: "idx_videos_approved_at")
+  @@index([createdAt], map: "idx_videos_created_at")
+  @@index([status, approvedAt, createdAt, id], map: "idx_videos_latest_cursor")
+  @@index([authorId, status, createdAt, id], map: "idx_videos_my_cursor")
+  @@map("videos")
+}
+
+model VideoLike {
+  id        String   @id @default(uuid()) @db.VarChar(36)
+  userId    String   @map("user_id") @db.VarChar(36)
+  videoId   String   @map("video_id") @db.VarChar(36)
+  createdAt DateTime @map("created_at") @db.DateTime(6)
+  user      User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([userId, videoId], map: "uk_video_likes_user_video")
+  @@index([userId], map: "idx_video_likes_user_id")
+  @@index([videoId], map: "idx_video_likes_video_id")
+  @@map("video_likes")
+}
+
+model UserFollow {
+  id         String   @id @default(uuid()) @db.VarChar(36)
+  followerId String   @map("follower_id") @db.VarChar(36)
+  authorId   String   @map("author_id") @db.VarChar(36)
+  createdAt  DateTime @map("created_at") @db.DateTime(6)
+  follower   User     @relation("FollowFollower", fields: [followerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  author     User     @relation("FollowAuthor", fields: [authorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([followerId, authorId], map: "uk_user_follows_follower_author")
+  @@index([followerId], map: "idx_user_follows_follower_id")
+  @@index([authorId], map: "idx_user_follows_author_id")
+  @@map("user_follows")
+}
+
+model VideoComment {
+  id        String        @id @default(uuid()) @db.VarChar(36)
+  videoId   String        @map("video_id") @db.VarChar(36)
+  authorId  String        @map("author_id") @db.VarChar(36)
+  content   String        @db.VarChar(500)
+  status    CommentStatus
+  createdAt DateTime      @map("created_at") @db.DateTime(6)
+  updatedAt DateTime      @map("updated_at") @db.DateTime(6)
+  deletedAt DateTime?     @map("deleted_at") @db.DateTime(6)
+  video     Video         @relation(fields: [videoId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  author    User          @relation(fields: [authorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([videoId, status, createdAt], map: "idx_video_comments_video_status_created")
+  @@index([authorId], map: "idx_video_comments_author_id")
+  @@index([videoId, createdAt, id], map: "idx_videos_comments_cursor")
+  @@map("video_comments")
+}
