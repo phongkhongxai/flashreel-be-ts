@@ -62,48 +62,53 @@ npm run lint
 npm test
 ```
 
-Prisma has a datasource but deliberately contains no business models or migrations. Analyze the actual database schema before adding models; do not run migrations against existing data until their effects have been reviewed.
-
 ## Architecture
 
-Authentication migration includes registration, login, Google OAuth, email
-verification, user profiles, roles, introspection, refresh and logout.
-Login and refresh return
-`result.accessToken` and `result.refreshToken`. Refresh accepts
-`{ "refreshToken": "..." }`. Logout accepts `accessToken` and/or
-`refreshToken` and revokes the supplied tokens. Clients must retain and
-send both tokens on logout to revoke both. This differs from the Java API.
-Email recovery endpoints accept JSON:
+Flashreel Backend is built with NestJS and organized by feature and infrastructure:
 
-- `POST /auth/resend-code`: `{ "email": "user@example.com" }` resends the verification code.
-- `POST /auth/forgot-password`: `{ "email": "user@example.com" }` sends a password reset code.
-- `POST /auth/reset-password`: `{ "email": "user@example.com", "code": "123456", "newPassword": "..." }` consumes the reset code and changes the password.
+- **Auth:** registration, login, Google OAuth, email verification, password recovery and JWT sessions.
+- **Users:** profiles, avatars and follow relationships.
+- **Videos:** uploads, feeds, playback, moderation and interaction counters.
+- **Interactions:** likes, comments and view tracking.
+- **Account:** account cancellation.
+- **Infrastructure:** MySQL through Prisma, Redis, SMTP email and S3-compatible object storage.
 
-Codes expire after 10 minutes. Code requests are limited to one per email per minute,
-and reset attempts to five per 10 minutes. Request responses are the same for
-existing and unknown accounts. SMTP delivery is asynchronous; failures appear in
-server logs. A password reset does not revoke existing access or refresh tokens.
-Existing JWTs from Java do not contain the required token type claim and
-cannot be used by these token methods. Set the `MAIL_*`, `GOOGLE_*`,
-and `MINIO_PUBLIC_URL` variables before exercising those integrations.
-Like the Java service, email is sent asynchronously; a delivery failure is
-logged and does not roll back registration.
+### Authentication
 
-`config` validates environment settings at startup. `common` contains shared HTTP handling. Infrastructure modules expose injectable Prisma, Redis, and S3 clients.
+Authentication uses separate access and refresh tokens:
 
-The `MINIO_*` environment variables configure the existing MinIO S3 client against RustFS; the names are retained for compatibility. RustFS uses a separate volume and does not automatically import data from a MinIO volume.
+- Login and refresh return `result.accessToken` and `result.refreshToken`.
+- Send the access token in the `Authorization: Bearer <accessToken>` header.
+- Refresh with `POST /auth/refresh` and body `{ "refreshToken": "..." }`.
+- Refresh tokens are rotated; save both tokens returned by each successful refresh.
+- Logout with `POST /auth/logout` and provide `accessToken`, `refreshToken`, or both. Send both to revoke both.
 
-The Java account, comment and follow domains are not migrated yet. The authentication migration has not yet been verified end-to-end against the original database and external services; review compatibility before replacing the Java backend.
+### Email verification and password recovery
 
-The video module uses `FFMPEG_PATH` (default `ffmpeg`) to extract a thumbnail.
-Install FFmpeg and configure `MINIO_PUBLIC_URL` and an existing storage bucket.
-Keep the bucket private. Video and thumbnail responses use signed GET URLs
-valid for 15 minutes; the client must request a new response after expiry.
-`MINIO_PUBLIC_URL` must be the HTTP(S) origin of the S3 API, without a path,
-and its hostname and port must be reachable by the client. Signatures include
-the host, so use a client-accessible hostname rather than rewriting a signed
-URL. A URL already issued can still be used until expiry after a take-down.
-Java currently supplies a fixed five-second duration rather than probing the
-uploaded video; the migrated flow retains that behavior. Video APIs have not
-yet been verified end-to-end against the existing Java database and storage.
-Video like, follow and comment APIs are outside this migration's scope.
+The following endpoints accept JSON:
+
+- `POST /auth/resend-code` — `{ "email": "user@example.com" }`
+- `POST /auth/forgot-password` — `{ "email": "user@example.com" }`
+- `POST /auth/reset-password` — `{ "email": "user@example.com", "code": "123456", "newPassword": "..." }`
+
+Verification and password-reset codes expire after 10 minutes. Code requests are limited to one per email per minute, and password reset is limited to five attempts per 10 minutes.
+
+Email is sent asynchronously through SMTP. Delivery failures are recorded in server logs and do not roll back registration. Password reset currently does not revoke previously issued tokens.
+
+Configure `MAIL_*` for SMTP and `GOOGLE_*` for Google OAuth.
+
+### Database and cache
+
+MySQL stores application data through Prisma. Redis stores temporary authentication codes and account-cancellation confirmations.
+
+Configuration is loaded from environment variables and validated at application startup.
+
+### Object storage and media
+
+RustFS provides S3-compatible object storage. The `MINIO_*` environment variables configure the S3 client and bucket.
+
+Keep the bucket private. Video, thumbnail and internally stored avatar responses use signed GET URLs valid for 15 minutes. Clients must request a new API response after a URL expires.
+
+`MINIO_PUBLIC_URL` must be the HTTP(S) origin of the S3 API and must be reachable from the client. The hostname and port are part of the signature, so do not rewrite a signed URL.
+
+The video module uses FFmpeg to extract thumbnails. Install FFmpeg and set `FFMPEG_PATH` if it is not available in `PATH`. The current upload flow uses a fixed five-second duration rather than probing the actual video duration.
