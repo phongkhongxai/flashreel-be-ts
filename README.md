@@ -2,6 +2,14 @@
  
 This is the existing NestJS project, prepared for incremental migration from the Java backend. It contains no migrated business APIs or database models.
 
+## Repositories
+
+| Component | Repository |
+|-----------|------------|
+| 🖥 Backend | https://github.com/phongkhongxai/flashreel-be-ts |
+| 🌐 Frontend | https://github.com/phongkhongxai/flashreel-fe |
+| 📱 Android app | https://github.com/phongkhongxai/flashreel-android |
+
 ## Requirements
 
 - Node.js 24 LTS and npm
